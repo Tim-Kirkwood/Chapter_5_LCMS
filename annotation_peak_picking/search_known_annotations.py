@@ -8,18 +8,13 @@ Created on Sat Dec 16 15:29:21 2023
 import os
 import pandas as pd
 import pickle
-import copy
-import numpy as np
 import networkx as nx
 
-def weighted_j_sim(array1, array2):
-    return np.minimum(array1, array2).sum()/np.maximum(array1, array2).sum()
 
+#folder with the clustered peak tables and annotation tables for all samples
 folder = r'D:/all_mzmatch_data/negative/combined_txt'
 
-print ('building rt db')
-
-
+#make a dictionary map of peaks for each strain (raw peaks, not clustered)
 print ('building rt db')
 peaks = [i for i in os.listdir(folder) if 'peaks' in i]
 raw_peaks = {}
@@ -36,7 +31,8 @@ for file in peaks:
     else:
         raise ValueError('duplicate bgc')
 
-
+#make dictionary maps with the retention time, intensity  of each peak in clustered 
+#peak table (note all peaks are summariesed into sngle representative peaks by IPA) 
 peaks = [i for i in os.listdir(folder) if 'clustered' in i]
 rt_db = {}
 peak_db = {}
@@ -59,6 +55,7 @@ for file in peaks:
     else:
         raise ValueError('duplicate bgc')
 
+#make an annotation db 
 print ('building annotations db')
 annotations = [i for i in os.listdir(folder) if 'annotations' in i]
 db = {}
@@ -81,12 +78,14 @@ compared = []
 
 all_predictions = []
 log = ''
+
+#compare every pair of different annotations across all strains  
 for strain, bgcs in db.items():
     for bgc, annotations in bgcs.items():
         print (strain, '  ', bgc)
         for other_strain, other_bgcs in db.items():
             for other_bgc, other_annotations in other_bgcs.items():
-                #print (other_strain, '  ', other_bgc)
+
                 
                 #do not compare self
                 if strain == other_strain and bgc == other_bgc:
@@ -96,29 +95,23 @@ for strain, bgcs in db.items():
                 #if the target strain and the target BGC has already been compared, do not repeat
                 if sorted([f'{strain}{bgc}', f'{other_strain}{other_bgc}']) in compared:
                     print (f'already compared {strain}::{bgc} and {other_strain}::{other_bgc}')
-                    #raise ValueError
                     continue
                 else:
                     print (f'comparing {strain}::{bgc} and {other_strain}::{other_bgc}')
                     compared += [sorted([f'{strain}{bgc}', f'{other_strain}{other_bgc}'])]
-                #count = 0
-                #reported = []
-                #num_comparisons = len(annotations) * len(other_annotations)
+
                 recorded =[] 
                 for index, (annotation, predictions) in enumerate(annotations.items()):
-                    #track proportion of annotations that have been compared against every other annotation
+                    #track proportion of annotations that have been compared against every 
+                    #other annotation - dont print previously reported percents 
                     progress = int(100*index/len(annotations))
                     if progress%20 == 0 and progress not in recorded:
                         print (progress)
                         recorded+= [progress]
-                        
-                    #try removing the gibbs rule and increasing the requirment for consistency
-                    #but as it stands you can find any that are in al thrree samples, confidently 
-                    #identified, and are eluting at similar times
-                    
+                                            
                     #do not compare weak annotations
-                    #if predictions['post Gibbs'][0] < 0.5:
-                    #    continue
+                    if predictions['post Gibbs'][0] < 0.5:
+                        continue
                     
                     #do not compare unknown annotations
                     test_prediction = predictions['id'][0]
@@ -134,27 +127,30 @@ for strain, bgcs in db.items():
                     #for the annotations in the target BGC
                     for other_annotation, other_predictions in other_annotations.items():
                         #dont compare weak or unknwon BGCs
-                        #if other_predictions['post Gibbs'][0] < 0.5:
-                        #    continue
+                        if other_predictions['post Gibbs'][0] < 0.5:
+                            continue
                         other_prediction = other_predictions['id'][0]
                         if other_prediction == 'Unknown':
                             continue
                                 
-                        #draw edge if they are the same 
+                        #draw edge if they are the same and elute within30 seconds of each other
                         if test_prediction == other_prediction:
                             test_rt = rt_db[strain][bgc][annotation]
                             other_rt = rt_db[other_strain][other_bgc][other_annotation]
                             if abs(test_rt - other_rt) < 30:
                                 known_edge_table += [[f'{strain}_{bgc}_{annotation}', f'{other_strain}_{other_bgc}_{other_annotation}']]
+
 df = pd.DataFrame(known_edge_table)
 G = nx.from_pandas_edgelist(df, source = 0, target = 1).to_undirected()
-G.add_nodes_from(all_predictions)#note this will include later nodes that are in graph already but arent compared to their earlier partner, but if they are already in graph they wont be added again                        
+#note all_predictions will include later nodes that are in graph already but arent compared 
+#to their earlier partner, but if they are already in graph they wont be added again                        
+G.add_nodes_from(all_predictions)
 
 specific_subgraphs = {'10' : [],
                       '15' : [],
                       '21' : [],
                       '25' : [],
-                      '47' : []}
+                     }
 
 for subgraph in nx.connected_components(G):
     if len(subgraph)>1:
@@ -164,14 +160,13 @@ for subgraph in nx.connected_components(G):
             
             data = {}
             for i in subgraph:
-                strain, bgc, annotation = i.split('_')
-                peak_df = all_peaks_db[strain][bgc]
-                peak = peak_df[peak_df['ids'] == int(annotation)]
-                
                 raw_peak_df = raw_peaks[strain][bgc]
                 raw_peak = raw_peak_df[raw_peak_df['id'] == int(annotation)] 
                 cols = [i for i in raw_peak.columns if i not in {'id', 'mass', 'RT'}]
-                if (raw_peak[cols].values != 0).sum()>=2:
+                if (raw_peak[cols].values != 0).sum()==3:
+                    strain, bgc, annotation = i.split('_')
+                    peak_df = all_peaks_db[strain][bgc]
+                    peak = peak_df[peak_df['ids'] == int(annotation)]
                     data[i] = {'annotations' : db[strain][bgc][int(annotation)], 
                                'intensity' : peak_db[strain][bgc][int(annotation)],
                                'peak' : peak,
