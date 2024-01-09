@@ -1,1 +1,2 @@
-
+# Annotation 
+Annoattion was achieved using IPApy2 via **run_IPA.py**.  This generated (i) a clustered peak table where peaks were grouped according to intensity correlation, and (ii) an annotation table containing puative annotations for the peaks in the peak table.  These were then parsed for BGC-specific annotations via **search_known_annotations.py**.
